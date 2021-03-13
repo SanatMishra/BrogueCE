@@ -3436,6 +3436,56 @@ void getImpactLoc(short returnLoc[2], const short originLoc[2], const short targ
     brogueAssert(coordinatesAreInMap(returnLoc[0], returnLoc[1]));
 }
 
+// Finds a cell that, when bolt targeting, will include targetLoc in its path.
+// Returns whether or not such a cell was found.
+// LATER: In the case of tunneling, redirect to cell with least cells taken out until there
+// but will require checking obstacles instead of aims
+// Or just prevent tunneling from forcing target?
+boolean forceTarget(const short targetLoc[2], short returnLoc[2], boolean passThroughCreatures) {
+    short originLoc[2] = {player.xLoc, player.yLoc};
+    int qx = targetLoc[0] > originLoc[0] ? 1 : -1;
+    int qy = targetLoc[1] > originLoc[1] ? 1 : -1;
+    short coords[MAX_BOLT_LENGTH][2];
+    boolean boltGoodSoFar;
+    creature* monst;
+
+    for (int x = targetLoc[0]; x >= 0 && x < DCOLS ; x += qx) {
+        for (int y = targetLoc[1]; y >= 0 && y < DROWS; y += qy) {
+            short newLoc[2] = {x, y};
+            int n = getLineCoordinates(coords, originLoc, newLoc);
+            boltGoodSoFar = true;
+            for (int i = 0; i < n; i++) {
+                int cx = coords[i][0], cy = coords[i][1];
+                if (cx == targetLoc[0] && cy == targetLoc[1]) {
+                    break;
+                }
+                // The conditions in hiliteTrajectory, but do not require cells to be discovered
+                if (cellHasTerrainFlag(cx, cy, (T_OBSTRUCTS_VISION | T_OBSTRUCTS_PASSABILITY))) {
+                    boltGoodSoFar = false;
+                    break;
+                }
+                if (!passThroughCreatures && pmap[cx][cy].flags & (HAS_MONSTER)
+                    && (playerCanSee(cx, cy) || player.status[STATUS_TELEPATHIC])) {
+                    monst = monsterAtLoc(cx, cy);
+                    if (!(monst->bookkeepingFlags & MB_SUBMERGED)
+                        && !monsterIsHidden(monst, &player)) {
+                        boltGoodSoFar = false;
+                        break;
+                    }
+                }
+            }
+
+            if (boltGoodSoFar) {
+                returnLoc[0] = x;
+                returnLoc[1] = y;
+                return true;
+            }
+
+        }
+    }
+    return false;
+}
+
 // Returns true if the two coordinates are unobstructed and diagonally adjacent,
 // but their two common neighbors are obstructed and at least one blocks diagonal movement.
 boolean impermissibleKinkBetween(short x1, short y1, short x2, short y2) {
@@ -5357,9 +5407,9 @@ boolean chooseTarget(short returnLoc[2],
                      boolean targetAllies,
                      boolean passThroughCreatures,
                      const color *trajectoryColor) {
-    short originLoc[2], targetLoc[2], oldTargetLoc[2], coordinates[DCOLS][2], numCells, i, distance, newX, newY;
+    short originLoc[2], targetLoc[2], oldTargetLoc[2], forcedTargetLoc[2], coordinates[DCOLS][2], numCells, i, distance, newX, newY;
     creature *monst;
-    boolean canceled, targetConfirmed, tabKey, cursorInTrajectory, focusedOnSomething = false;
+    boolean canceled, targetConfirmed, tabKey, cursorInTrajectory, forcedTarget = false, focusedOnSomething = false;
     rogueEvent event = {0};
     short oldRNG;
     color trajColor = *trajectoryColor;
@@ -5471,8 +5521,19 @@ boolean chooseTarget(short returnLoc[2],
         oldTargetLoc[0] = targetLoc[0];
         oldTargetLoc[1] = targetLoc[1];
         moveCursor(&targetConfirmed, &canceled, &tabKey, targetLoc, &event, NULL, false, true, false);
-        if (event.eventType == RIGHT_MOUSE_UP) { // Right mouse cancels.
-            canceled = true;
+        if (event.eventType == RIGHT_MOUSE_UP) { // One right click selects a target, next one confirms
+            if (forcedTarget) {
+                targetConfirmed = true;
+                break;
+            }
+
+            if (forceTarget(targetLoc, forcedTargetLoc, passThroughCreatures)) {
+                targetLoc[0] = forcedTargetLoc[0];
+                targetLoc[1] = forcedTargetLoc[1];
+                forcedTarget = true;
+            }
+        } else {
+            forcedTarget = false;
         }
     } while (!targetConfirmed);
     if (maxDistance > 0) {
