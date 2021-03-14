@@ -3399,7 +3399,7 @@ short getLineCoordinates(short listOfCoordinates[][2], const short originLoc[2],
 // Takes into account the caster's knowledge; i.e. won't be blocked by monsters
 // that the caster is not aware of.
 void getImpactLoc(short returnLoc[2], const short originLoc[2], const short targetLoc[2],
-                  const short maxDistance, const boolean returnLastEmptySpace) {
+                  boolean passThruCreatures, const short maxDistance, const boolean returnLastEmptySpace) {
     short coords[DCOLS + 1][2];
     short i, n;
     creature *monst;
@@ -3408,7 +3408,7 @@ void getImpactLoc(short returnLoc[2], const short originLoc[2], const short targ
     n = min(n, maxDistance);
     for (i=0; i<n; i++) {
         monst = monsterAtLoc(coords[i][0], coords[i][1]);
-        if (monst
+        if (!passThruCreatures && monst
             && !monsterIsHidden(monst, monsterAtLoc(originLoc[0], originLoc[1]))
             && !(monst->bookkeepingFlags & MB_SUBMERGED)) {
             // Imaginary bolt hit the player or a monster.
@@ -3438,10 +3438,7 @@ void getImpactLoc(short returnLoc[2], const short originLoc[2], const short targ
 
 // Finds a cell that, when bolt targeting, will include targetLoc in its path.
 // Returns whether or not such a cell was found.
-// LATER: In the case of tunneling, redirect to cell with least cells taken out until there
-// but will require checking obstacles instead of aims
-// Or just prevent tunneling from forcing target?
-boolean forceTarget(const short targetLoc[2], short returnLoc[2], boolean passThroughCreatures) {
+boolean searchForTarget(const short originLoc[2], const short targetLoc[2], short returnLoc[2], boolean passThroughCreatures) {
     short originLoc[2] = {player.xLoc, player.yLoc};
     int qx = targetLoc[0] > originLoc[0] ? 1 : -1;
     int qy = targetLoc[1] > originLoc[1] ? 1 : -1;
@@ -3449,10 +3446,20 @@ boolean forceTarget(const short targetLoc[2], short returnLoc[2], boolean passTh
     boolean boltGoodSoFar;
     creature* monst;
 
+    // The iteration can be changed if speed is an issue.
+    // Could start from the initial bolt tiles, and go up/down 1 tile each iteration along the shorter dimension of the line
+    // Brute force tested that there must be at least one valid target +- 2 tile from the original bolt along the shorter dimension
+    // Also probably need to check some points between user and target as well; maybe I have to do this iteration.
+
+    // Another option is to take each obstacle/enemy between the source and the target, and add to a counter on each target that would be blocked by the cell.
+    // You can determine which squares are blocked by each obstacle without doing bresenham. (x, y) passes thru (j, k) iff k - 1/2 <= jy/x < k + 1/2
+    // Then we take the first cell that has target on its path and is not in this "obstacle counter map"
+    // This could let us maximize lightning value, but maybe that shouldn't be given to the player for free
     for (int x = targetLoc[0]; x >= 0 && x < DCOLS ; x += qx) {
         for (int y = targetLoc[1]; y >= 0 && y < DROWS; y += qy) {
             short newLoc[2] = {x, y};
             int n = getLineCoordinates(coords, originLoc, newLoc);
+
             boltGoodSoFar = true;
             for (int i = 0; i < n; i++) {
                 int cx = coords[i][0], cy = coords[i][1];
@@ -5527,7 +5534,7 @@ boolean chooseTarget(short returnLoc[2],
                 break;
             }
 
-            if (forceTarget(targetLoc, forcedTargetLoc, passThroughCreatures)) {
+            if (searchForTarget(targetLoc, forcedTargetLoc, passThroughCreatures)) {
                 targetLoc[0] = forcedTargetLoc[0];
                 targetLoc[1] = forcedTargetLoc[1];
                 forcedTarget = true;
@@ -6097,7 +6104,7 @@ boolean playerCancelsBlinking(const short originLoc[2], const short targetLoc[2]
         return false;
     }
 
-    getImpactLoc(impactLoc, originLoc, targetLoc, maxDistance > 0 ? maxDistance : DCOLS, true);
+    getImpactLoc(impactLoc, originLoc, targetLoc, false, maxDistance > 0 ? maxDistance : DCOLS, true);
     getLocationFlags(impactLoc[0], impactLoc[1], &tFlags, &tmFlags, NULL, true);
     if (maxDistance > 0) {
         if ((pmap[impactLoc[0]][impactLoc[1]].flags & DISCOVERED)

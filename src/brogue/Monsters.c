@@ -1016,7 +1016,7 @@ void populateMonsters() {
     while (rand_percent(60)) {
         numberOfMonsters++;
     }
-    for (i=0; i<numberOfMonsters; i++) {
+    for (i=0; i<numberOfMonsters*3; i++) {
         spawnHorde(0, -1, -1, (HORDE_IS_SUMMONED | HORDE_MACHINE_ONLY), 0); // random horde type, random location
     }
 }
@@ -1952,10 +1952,12 @@ boolean specifiedPathBetween(short x1, short y1, short x2, short y2,
     return true; // should never get here
 }
 
-boolean openPathBetween(short x1, short y1, short x2, short y2) {
-    short returnLoc[2], startLoc[2] = {x1, y1}, targetLoc[2] = {x2, y2};
+boolean openPathBetween(short x1, short y1, short x2, short y2, boolean forceTarget, short targetLoc[2]) {
+    short returnLoc[2], startLoc[2] = {x1, y1}
+    targetLoc[0] = x2;
+    targetLoc[1] = y2;
 
-    getImpactLoc(returnLoc, startLoc, targetLoc, DCOLS, false);
+    getImpactLoc(returnLoc, startLoc, targetLoc, passThruCreatures, DCOLS, false);
     if (returnLoc[0] == targetLoc[0] && returnLoc[1] == targetLoc[1]) {
         return true;
     }
@@ -2227,7 +2229,7 @@ boolean monsterBlinkToPreferenceMap(creature *monst, short **preferenceMap, bool
         target[0] += monst->xLoc;
         target[1] += monst->yLoc;
 
-        getImpactLoc(impact, origin, target, maxDistance, true);
+        getImpactLoc(impact, origin, target, false, maxDistance, true);
         nowPreference = preferenceMap[impact[0]][impact[1]];
 
         if (((blinkUphill && (nowPreference > bestPreference))
@@ -2353,7 +2355,7 @@ boolean monsterSummons(creature *monst, boolean alwaysUse) {
 
 // Some monsters never make good targets irrespective of what bolt we're contemplating.
 // Return false for those. Otherwise, return true.
-boolean generallyValidBoltTarget(creature *caster, creature *target) {
+boolean generallyValidBoltTarget(creature *caster, creature *target, short targetLoc[2], boolean passThruCreatures) {
     if (caster == target) {
         // Can't target yourself; that's the fundamental theorem of Brogue bolts.
         return false;
@@ -2374,7 +2376,7 @@ boolean generallyValidBoltTarget(creature *caster, creature *target) {
         // No bolt will affect a submerged creature. Can't shoot at invisible creatures unless it's in gas.
         return false;
     }
-    return openPathBetween(caster->xLoc, caster->yLoc, target->xLoc, target->yLoc);
+    return openPathBetween(caster->xLoc, caster->yLoc, target->xLoc, target->yLoc, targetLoc, passThruCreatures);
 }
 
 boolean targetEligibleForCombatBuff(creature *caster, creature *target) {
@@ -2566,9 +2568,9 @@ boolean specificallyValidBoltTarget(creature *caster, creature *target, enum bol
     return true;
 }
 
-void monsterCastSpell(creature *caster, creature *target, enum boltType boltIndex) {
+void monsterCastSpell(creature *caster, short targetLoc[2], enum boltType boltIndex) {
     bolt theBolt;
-    short originLoc[2], targetLoc[2];
+    short originLoc[2];
     char buf[200], monstName[100];
 
     if (canDirectlySeeMonster(caster)) {
@@ -2581,8 +2583,6 @@ void monsterCastSpell(creature *caster, creature *target, enum boltType boltInde
     theBolt = boltCatalog[boltIndex];
     originLoc[0] = caster->xLoc;
     originLoc[1] = caster->yLoc;
-    targetLoc[0] = target->xLoc;
-    targetLoc[1] = target->yLoc;
     zap(originLoc, targetLoc, &theBolt, false);
 
     if (player.currentHP <= 0) {
@@ -2593,6 +2593,8 @@ void monsterCastSpell(creature *caster, creature *target, enum boltType boltInde
 // returns whether the monster cast a bolt.
 boolean monstUseBolt(creature *monst) {
     creature *target;
+    bolt* theBolt;
+    short targetLoc[2];
     short i;
 
     if (!monst->info.bolts[0]) {
@@ -2600,8 +2602,9 @@ boolean monstUseBolt(creature *monst) {
     }
 
     CYCLE_MONSTERS_AND_PLAYERS(target) {
-        if (generallyValidBoltTarget(monst, target)) {
-            for (i = 0; monst->info.bolts[i]; i++) {
+        for (i = 0; monst->info.bolts[i]; i++) {
+            theBolt = &boltCatalog[monst->info.bolts[i]];
+            if (generallyValidBoltTarget(monst, target, targetLoc, theBolt->flags & BF_PASSES_THRU_CREATURES)) {
                 if (boltCatalog[monst->info.bolts[i]].boltEffect == BE_BLINKING) {
                     continue; // Blinking is handled elsewhere.
                 }
@@ -2609,7 +2612,7 @@ boolean monstUseBolt(creature *monst) {
                     if ((monst->info.flags & MONST_ALWAYS_USE_ABILITY)
                         || rand_percent(30)) {
 
-                        monsterCastSpell(monst, target, monst->info.bolts[i]);
+                        monsterCastSpell(monst, targetLoc, monst->info.bolts[i]);
                         return true;
                     }
                 }

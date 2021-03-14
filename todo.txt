@@ -1,0 +1,31 @@
+gil: add passThruCreatures/tunnel param
+opb: pass false false
+playerCancelBlink    <
+monstBlink2Pref      <
+WhipAttack           these are all fine
+
+opb: <-- add openBoltPathBetween to replace some; only obpb has ptc/tunnel params
+generallyvalidbolttarget: opb --> obpb pass ptc/tunnel
+creatureIsTargetable: throwCommand add right click auto targeting change
+                      opb --> obpb
+                      pass params?
+awarenessDistance: nothing changes?
+updatemonsterstate: determine closest feared enemy; nothing changes
+nexttargetafter needs to handle target forcing or have a return value telling whether or not something needs to be forced
+                pass depending on context, figure this out later
+
+monstercastspell: change creature to location
+generallyvalidbolttarget gets ptc/tunnel
+
+obpb: this is literally searchForTarget lmao
+      guess you gotta add the params to searchTarget too
+
+gil is not called with passThruCreatures except through openPathBetween
+--> add obpb
+
+gil will take into account the bolt being used/whether item or not:
+
+
+
+
+
